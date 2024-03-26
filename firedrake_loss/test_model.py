@@ -10,8 +10,8 @@ from scipy.interpolate import LinearNDInterpolator
 
 dx = 100.
 dy = 100.
-nx = 100
-ny = 100
+nx = 50
+ny = 50
 
 config = {
     'dx' : dx,
@@ -48,14 +48,28 @@ dt = model.get_dt()
 T = 12.
 i = 0
 
-out = fd.File('plots/out.pvd')
+print(dt)
 
-while t < T:
-    print(i, t)
-    model.step(dt)
-    t += dt
-    i += 1
 
-    if i % 25 == 0:
-        out.write(model.c, time=t)
+u = fd.Function(model.X)
+x = fd.Function(model.X)
 
+
+f = fd.File('out.pvd')
+
+
+for k in range(200):
+    r = fd.assemble(model.F)
+    J = fd.assemble(model.J).M.handle
+
+    print((r.dat.data**2).sum())
+
+    with u.dat.vec as u0_p:
+        with r.dat.vec_ro as r_p:
+            with x.dat.vec as x_p:
+                J.multTranspose(r_p, x_p)
+                u0_p.axpy(-1e-3, x_p)
+               
+
+    model.c.assign(u)
+    f.write(model.c, idx=k)

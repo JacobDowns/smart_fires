@@ -188,7 +188,6 @@ dt = 0.07*fd.interpolate(h/vnorm, DG0).dat.data.min()
 dt0 = dt
 print(dt)
 quit()
-
 problem = fd.NonlinearVariationalProblem(F, c)
 transport = fd.NonlinearVariationalSolver(problem)
 
