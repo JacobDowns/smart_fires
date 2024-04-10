@@ -162,7 +162,18 @@ cython_debug/
 *.py~
 *.npy
 *.zarr
-raster_to_mesh/glaciers.zarr/*
 *.vtu
 *.pvd
 *.pt
+
+mod/
+warp_experiments/
+*.hydra/
+
+# MLflow
+mlruns/
+mlartifacts/
+outputs/
+mlruns.db
+**/basic_auth.db
+*.mdlus
