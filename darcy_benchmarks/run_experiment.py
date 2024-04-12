@@ -20,7 +20,7 @@ log = PythonLogger(name="darcy_fno")
 log.file_logging()
 
 initialize_mlflow(
-    experiment_name=f"Data",
+    experiment_name=f"Data + Strong",
     experiment_desc=f"Training an FNO model for the Darcy problem",
     run_name=f"Fixed Dataset",
     run_desc=f"PINN",
@@ -70,8 +70,8 @@ ckpt_args = {
     "models": model,
 }
 
-#loaded_epoch = 0
-loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
+loaded_epoch = 0
+#loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
 
 if loaded_epoch == 0:
     log.success("Training started...")
@@ -125,6 +125,7 @@ for i in range(
             u_j = u[j][0]
             #l += pde_loss(u_j, k_j, darcy_model)
             l += data_loss(u_j, u_mod, darcy_model)
+            l += pde_loss(u_j, k_j, darcy_model)
             l_avg += l
 
         l.backward()
