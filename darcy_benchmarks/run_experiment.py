@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.nn import MSELoss
-from darcy_model import DarcyModel, Loss
+from darcy_model import DarcyModel, PDELoss, DataLoss
 import firedrake as fd
 from modulus.models.fno import FNO
 from modulus.distributed import DistributedManager
@@ -20,7 +20,7 @@ log = PythonLogger(name="darcy_fno")
 log.file_logging()
 
 initialize_mlflow(
-    experiment_name=f"Strong",
+    experiment_name=f"Data",
     experiment_desc=f"Training an FNO model for the Darcy problem",
     run_name=f"Fixed Dataset",
     run_desc=f"PINN",
@@ -56,7 +56,8 @@ class Model(nn.Module):
 model = Model()
 
 darcy_model = DarcyModel()
-pde_loss = Loss().apply
+pde_loss = PDELoss().apply
+data_loss = DataLoss().apply
 mse_loss = MSELoss()
 
 
@@ -69,8 +70,8 @@ ckpt_args = {
     "models": model,
 }
 
-loaded_epoch = 0
-#loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
+#loaded_epoch = 0
+loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
 
 if loaded_epoch == 0:
     log.success("Training started...")
@@ -94,11 +95,11 @@ U = np.load('darcy_data/U.npy')[:,np.newaxis,:,:]
 U = torch.tensor(U, dtype=torch.float32).cuda()
 K = torch.tensor(K, dtype=torch.float32).cuda()
 
-N_train = 750
+N_train = 1750
 K_train = K[0:N_train]
 U_train = U[0:N_train]
-K_validate = K[N_train:1000]
-U_validate = U[N_train:1000]
+K_validate = K[N_train:(N_train+100)]
+U_validate = U[N_train:(N_train+100)]
 
 dataset = TensorDataset(K_train, U_train)
 data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
@@ -115,13 +116,15 @@ for i in range(
     for batch, (k, u_mod) in enumerate(data_loader):
         optimizer.zero_grad()
         u = model(k).cpu()
+        u_mod = u_mod.cpu()
         k = k.cpu()
         l = torch.tensor(0.)
 
         for j in range(len(u)):
             k_j = k[j][0]
             u_j = u[j][0]
-            l += pde_loss(u_j, k_j, darcy_model)
+            #l += pde_loss(u_j, k_j, darcy_model)
+            l += data_loss(u_j, u_mod, darcy_model)
             l_avg += l
 
         l.backward()

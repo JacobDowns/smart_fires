@@ -20,15 +20,11 @@ class DarcyModel:
             nx = 128, # X res
             ny = 128, # Y res
             bc_val = 0., # Value on boundary
-            pde_loss = 'strong', # What form of the PDE to use (weak, strong, variational)
-            strong_bcs = True # Enforce strong bcs?
-            w_data = 0., # Weight for data loss
-            w_pde = 1., # Weight for PDE loss
-            w_bc = 0. # Weight for boundary condition loss
+            pde_form = 'strong', # What form of the PDE to use (weak, strong, variational)
         ):
 
-        self.pde_loss = pde_loss
-        self.strong_bcs = strong_bcs
+        self.pde_form = pde_form
+
 
         ### Domain variables
         #===========================================
@@ -66,6 +62,7 @@ class DarcyModel:
         # Observed (FEM) velocity used in data loss
         self.u_obs = u_obs = fd.Function(V, name='u_obs')
 
+
         ### Different loss functions for the Darcy flow equations
         #===========================================
 
@@ -79,29 +76,13 @@ class DarcyModel:
         self.F_var = k*fd.Constant(0.5)*fd.dot(fd.grad(u), fd.grad(u))*fd.dx - u*f*fd.dx
 
         # Data loss function
-        self.F_data = (u_obs - u)**2 * fd.dx
-
-        # Strong boundary condition condition loss
-        self.F_bc = (u - fd.Constant(bc_val))**2 * fd.dx
-
-        # Weak boundary condition loss
-        self.F_weak_bc = (u - fd.Constant(bc_val))**2 * w * fd.dx
+        self.F_data = fd.Constant(100.)*fd.sqrt((u_obs - u)**2 + fd.Constant(1e-16))* fd.dx
 
         self.forms = {}
         self.forms['data'] = self.F_data
         self.forms['weak'] = self.F_weak
         self.forms['strong'] = self.F_strong
         self.forms['var'] = self.F_var
-        self.forms['bc'] = self.F_bc
-        self.forms['weak_bc'] = self.F_weak_bc
-
-        # Construct the form to use for the loss function
-        self.loss_form = fd.Constant(w_pde)*self.forms[pde_loss]
-
-        if self.pde_loss == 'weak':
-           
-
-            if self.w_bc 
 
   
         ### Solver 
@@ -121,19 +102,15 @@ class DarcyModel:
         self.indexes = np.lexsort((x0, y0))
 
 
-        ### Jacobian
+        ### Jacobians
         #===========================================
 
-
         self.derivatives = {}
-        self.derivatives['weak'] = self.J_weak
-        self.derivatives['weak_bc'] = self.J_weak_bc
-        self.derivatives['strong'] = self.J_strong
-        self.derivatives['strong_bc'] = self.J_strong_bc
-        self.derivatives['var'] = self.J_var
-        self.derivatives['var_bc'] = self.J_var_bc
 
-        # Stores r^T J product
+        for k in self.forms:
+            self.derivatives[k] = fd.derivative(self.forms[k], self.u)
+        
+        # Stores either gradient or r^T J product
         self.rJ = fd.Function(self.V)
 
 
@@ -197,10 +174,10 @@ class DarcyModel:
 """
 Pinn loss function. Accepts 2D permeability and pressure.
 """
-class Loss(torch.autograd.Function):
+class PDELoss(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, u, u_obs, k, model):
+    def forward(ctx, u, k, model):
 
         ctx.model = model 
         ctx.k = k
@@ -209,19 +186,13 @@ class Loss(torch.autograd.Function):
         model.set_field(model.k, k)
         model.set_field(model.u, u)
 
-        form_name = model.form
-        bcs = []
-        if not model.strong_bcs:   
-            bcs = model.bcs
-            form_name += '_bc'
-
-        R = model.forms[form_name]
+        R = model.forms[model.pde_form]
     
-        if model.form == 'weak':
-            r = torch.tensor(fd.assemble(R, bcs=bcs).dat.data[:], dtype=torch.float32) 
+        if model.pde_form == 'weak':
+            r = torch.tensor(fd.assemble(R, bcs=model.bcs).dat.data[:], dtype=torch.float32) 
             r = 0.5*(r**2).sum()
         else: 
-            r = torch.tensor(fd.assemble(R, bcs=bcs), dtype=torch.float32) 
+            r = torch.tensor(fd.assemble(R, bcs=model.bcs), dtype=torch.float32) 
      
         return r
 
@@ -235,25 +206,58 @@ class Loss(torch.autograd.Function):
         model.set_field(model.k, k)
         model.set_field(model.u, u)
 
-        form_name = model.form
-        bcs = []
-        if not model.strong_bcs:   
-            bcs = model.bcs
-            form_name += '_bc'
+        R = model.forms[model.pde_form]
+        J = model.derivatives[model.pde_form]
 
-        R = model.forms[form_name]
-        J = model.derivatives[form_name]
-
-        if model.form == 'weak':
-            r = fd.assemble(R, bcs=bcs)
-            J = fd.assemble(J, bcs=bcs).M.handle
+        if model.pde_form == 'weak':
+            r = fd.assemble(R, bcs=model.bcs)
+            J = fd.assemble(J, bcs=model.bcs).M.handle
 
             with r.dat.vec_ro as r_p:
                 with model.rJ.dat.vec as rJ:
                     J.multTranspose(r_p, rJ)
         else:
-            fd.assemble(J, bcs=bcs, tensor=model.rJ)
+            fd.assemble(J, bcs=model.bcs, tensor=model.rJ)
         
         rJ = model.get_field(model.rJ)
         out = torch.tensor(rJ, dtype=torch.float32) 
+
+        return out*grad_output, None, None, None
+    
+    
+"""
+Data  loss function.
+"""
+class DataLoss(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, u, u_obs, model):
+
+        ctx.model = model 
+        ctx.u_obs = u_obs
+        ctx.u = u
+
+        model.set_field(model.u_obs, u_obs)
+        model.set_field(model.u, u)
+    
+        r = torch.tensor(fd.assemble(model.forms['data'], bcs=model.bcs), dtype=torch.float32) 
+     
+        return r
+
+    @staticmethod
+    def backward(ctx, grad_output):
+
+        model = ctx.model  
+        u_obs = ctx.u_obs
+        u = ctx.u
+
+        model.set_field(model.u_obs, u_obs)
+        model.set_field(model.u, u)
+
+        J = model.derivatives['data']
+        fd.assemble(J, bcs=model.bcs, tensor=model.rJ)
+        
+        rJ = model.get_field(model.rJ)
+        out = torch.tensor(rJ, dtype=torch.float32) 
+        
         return out*grad_output, None, None, None
