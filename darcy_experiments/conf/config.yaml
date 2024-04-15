@@ -1,0 +1,17 @@
+defaults:
+  - _self_
+  - experiments: strong
+
+training:
+  epochs: 1500
+  training_examples: 1500
+  validation_examples: 250
+  checkpoint_interval: 20
+  validation_interval: 20
+  lr : 1e-3
+
+hydra:
+    mode: MULTIRUN
+    sweeper:
+        params:
+          +pde_weight: 1., 0.5, 0.1

@@ -1,0 +1,25 @@
+# @package _global_
+experiment:
+    - override /experiment_name: 'strong'
+    - override /run_name: 'strong'
+    - override /run_desc: 'Strong form PINN loss'
+
+training:
+    batch_size : 1
+    epochs : 1000
+    train_examples : 1500
+    validate_examples: 250
+    checkpoint_freq: 20
+    validate_freq: 20
+    
+optimiser:
+    lr: 1e-3
+
+hydra:
+    mode: MULTIRUN
+    sweeper:
+        params:
+          + batch_size: 1, 10, 100
+          + lr: 1e-3, 1e-4, 1e-5
+          + pde_weight: 0., 1., 100.
+          + data_weight: 0., 1., 100.

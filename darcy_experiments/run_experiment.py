@@ -1,3 +1,6 @@
+import hydra
+from omegaconf import DictConfig
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -12,6 +15,7 @@ from modulus.launch.logging import PythonLogger, LaunchLogger, initialize_mlflow
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 
+
 DistributedManager.initialize()  
 dist = DistributedManager()  
 
@@ -19,15 +23,33 @@ dist = DistributedManager()
 log = PythonLogger(name="darcy_fno")
 log.file_logging()
 
-initialize_mlflow(
-    experiment_name=f"Data + Strong",
-    experiment_desc=f"Training an FNO model for the Darcy problem",
-    run_name=f"Fixed Dataset",
-    run_desc=f"PINN",
-    user_name="Jacob Downs",
-    mode="offline",
-)
-LaunchLogger.initialize(use_mlflow=True)
+
+@hydra.main(version_base="1.3", config_path=".", config_name="config.yaml")
+def run_experiment(cfg: DictConfig) -> None:
+    
+    hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
+    
+    # Create checkpoint directory
+    checkpoint_dir = f'checkpoints/{cfg.experiment.name}/{hydra_cfg.job.num}'
+    print(checkpoint_dir)
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+
+    run_name = ''
+
+    initialize_mlflow(
+        experiment_name=cfg.experiment.name,
+        experiment_desc=cfg.experiment.desc,
+        run_name=hydra_cfg.job.num,
+        run_desc=hydra_cfg.job.num,
+        user_name="Jacob Downs",
+        mode="offline",
+    )
+    LaunchLogger.initialize(use_mlflow=True)
+
+    a = np.zeros(5)
+    np.savetxt(f'{checkpoint_dir}/a.txt', a)
+
 
 class Model(nn.Module):
     def __init__(self):
@@ -123,9 +145,9 @@ for i in range(
         for j in range(len(u)):
             k_j = k[j][0]
             u_j = u[j][0]
-            #l += pde_loss(u_j, k_j, darcy_model)
+            l += pde_loss(u_j, k_j, darcy_model)
             l += data_loss(u_j, u_mod, darcy_model)
-            l += (1./100.)*pde_loss(u_j, k_j, darcy_model)
+            #l += (1./100.)*pde_loss(u_j, k_j, darcy_model)
             l_avg += l
 
         l.backward()
@@ -139,7 +161,7 @@ for i in range(
         logger.log_epoch({"loss": l_avg.detach()})
 
             
-    if i % 5 ==  0:
+    if i % cfg.training.checkpoint_frequency ==  0:
         save_checkpoint(**ckpt_args, epoch=i)
 
         model.eval()

@@ -1,0 +1,5 @@
+# @package _global_
+experiment:
+    - name: 'strong'
+    - desc: 'Train FNO using strong form PDE loss'
+
