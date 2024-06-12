@@ -1,0 +1,4 @@
+name: strong
+pde_form: strong
+description: 'Minimize strong form of PDE.'
+lr : 1e-5

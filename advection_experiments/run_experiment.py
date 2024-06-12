@@ -1,8 +1,11 @@
+import hydra
+from omegaconf import DictConfig
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.nn import MSELoss
-from darcy_model import DarcyModel, PDELoss, DataLoss
+from advection_model import DarcyModel, PDELoss, DataLoss
 import firedrake as fd
 from modulus.models.fno import FNO
 from modulus.distributed import DistributedManager
@@ -12,6 +15,7 @@ from modulus.launch.logging import PythonLogger, LaunchLogger, initialize_mlflow
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 
+
 DistributedManager.initialize()  
 dist = DistributedManager()  
 
@@ -19,15 +23,33 @@ dist = DistributedManager()
 log = PythonLogger(name="darcy_fno")
 log.file_logging()
 
-initialize_mlflow(
-    experiment_name=f"Var1",
-    experiment_desc=f"Training an FNO model for the Darcy problem",
-    run_name=f"Fixed Dataset",
-    run_desc=f"PINN",
-    user_name="Jacob Downs",
-    mode="offline",
-)
-LaunchLogger.initialize(use_mlflow=True)
+
+@hydra.main(version_base="1.3", config_path=".", config_name="config.yaml")
+def run_experiment(cfg: DictConfig) -> None:
+    
+    hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
+    
+    # Create checkpoint directory
+    checkpoint_dir = f'checkpoints/{cfg.experiment.name}/{hydra_cfg.job.num}'
+    print(checkpoint_dir)
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+
+    run_name = ''
+
+    initialize_mlflow(
+        experiment_name=cfg.experiment.name,
+        experiment_desc=cfg.experiment.desc,
+        run_name=hydra_cfg.job.num,
+        run_desc=hydra_cfg.job.num,
+        user_name="Jacob Downs",
+        mode="offline",
+    )
+    LaunchLogger.initialize(use_mlflow=True)
+
+    a = np.zeros(5)
+    np.savetxt(f'{checkpoint_dir}/a.txt', a)
+
 
 class Model(nn.Module):
     def __init__(self):
@@ -61,7 +83,7 @@ data_loss = DataLoss().apply
 mse_loss = MSELoss()
 
 
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 epochs = 25000
 
 ckpt_args = {
@@ -70,8 +92,8 @@ ckpt_args = {
     "models": model,
 }
 
-loaded_epoch = 0
-#loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
+#loaded_epoch = 0
+loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
 
 if loaded_epoch == 0:
     log.success("Training started...")
@@ -95,11 +117,11 @@ U = np.load('darcy_data/U.npy')[:,np.newaxis,:,:]
 U = torch.tensor(U, dtype=torch.float32).cuda()
 K = torch.tensor(K, dtype=torch.float32).cuda()
 
-N_train = 500
+N_train = 1750
 K_train = K[0:N_train]
 U_train = U[0:N_train]
-K_validate = K[N_train:(N_train+250)]
-U_validate = U[N_train:(N_train+250)]
+K_validate = K[N_train:(N_train+100)]
+U_validate = U[N_train:(N_train+100)]
 
 dataset = TensorDataset(K_train, U_train)
 data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
@@ -107,6 +129,9 @@ data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 for i in range(
         max(1, loaded_epoch + 1), epochs + 1
     ):
+
+
+
 
     print('Epoch', i)
     model.train()
@@ -123,9 +148,9 @@ for i in range(
         for j in range(len(u)):
             k_j = k[j][0]
             u_j = u[j][0]
-            #l += pde_loss(u_j, k_j, darcy_model)
-            #l += data_loss(u_j, u_mod, darcy_model)
             l += pde_loss(u_j, k_j, darcy_model)
+            l += data_loss(u_j, u_mod, darcy_model)
+            #l += (1./100.)*pde_loss(u_j, k_j, darcy_model)
             l_avg += l
 
         l.backward()
@@ -139,7 +164,7 @@ for i in range(
         logger.log_epoch({"loss": l_avg.detach()})
 
             
-    if i % 5 ==  0:
+    if i % cfg.training.checkpoint_frequency ==  0:
         save_checkpoint(**ckpt_args, epoch=i)
 
         model.eval()

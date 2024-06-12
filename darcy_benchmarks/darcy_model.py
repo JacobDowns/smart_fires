@@ -20,7 +20,7 @@ class DarcyModel:
             nx = 128, # X res
             ny = 128, # Y res
             bc_val = 0., # Value on boundary
-            pde_form = 'strong', # What form of the PDE to use (weak, strong, variational)
+            pde_form = 'var', # What form of the PDE to use (weak, strong, variational)
         ):
 
         self.pde_form = pde_form
@@ -70,7 +70,7 @@ class DarcyModel:
         self.F_weak = k*fd.dot(fd.grad(u),fd.grad(w))*fd.dx - f*w*fd.dx
 
         # Strong form
-        self.F_strong = (-fd.div(k * fd.grad(u)) + f)**2 * fd.dx
+        self.F_strong = (-fd.div(k * fd.grad(u)) - f)**2 * fd.dx
 
         # Variational principle
         self.F_var = k*fd.Constant(0.5)*fd.dot(fd.grad(u), fd.grad(u))*fd.dx - u*f*fd.dx

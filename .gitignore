@@ -177,3 +177,4 @@ outputs/
 mlruns.db
 **/basic_auth.db
 *.mdlus
+*multirun/

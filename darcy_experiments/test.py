@@ -10,10 +10,7 @@ from torch.nn import MSELoss
 from darcy_model import DarcyModel, PDELoss, DataLoss
 import firedrake as fd
 from modulus.models.fno import FNO
-from modulus.distributed import DistributedManager
-from modulus.utils import StaticCaptureTraining, StaticCaptureEvaluateNoGrad
 from modulus.launch.utils import load_checkpoint, save_checkpoint
-from modulus.launch.logging import PythonLogger, LaunchLogger, initialize_mlflow
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 
@@ -22,6 +19,7 @@ import torch.nn as nn
 
 @hydra.main(version_base="1.3", config_path="conf", config_name="config")
 def run_experiment(cfg: DictConfig) -> None:
+
 
     hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
 
@@ -49,6 +47,7 @@ def run_experiment(cfg: DictConfig) -> None:
         run_id = None
     else:
         run_id = runs['run_id'].item()
+
 
     with mlflow.start_run(run_name=str(hydra_cfg.job.num), experiment_id=experiment_id, run_id=run_id) as run:
                 
@@ -80,9 +79,8 @@ def run_experiment(cfg: DictConfig) -> None:
         darcy_model = DarcyModel(pde_form = str(cfg.experiments.pde_form))
         pde_loss = PDELoss().apply
         data_loss = DataLoss().apply
-        mse_loss = MSELoss()
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
         epochs = cfg.training.epochs
 
         # Create checkpoint directory
@@ -100,7 +98,7 @@ def run_experiment(cfg: DictConfig) -> None:
             "models": model,
         }
 
-        loaded_epoch = 0
+        #loaded_epoch = 0 
         loaded_epoch = load_checkpoint(device='cuda', **ckpt_args)
 
 
@@ -110,8 +108,7 @@ def run_experiment(cfg: DictConfig) -> None:
 
         U = torch.tensor(U, dtype=torch.float32).cuda()
         K = torch.tensor(K, dtype=torch.float32).cuda()
-
-        N_train = cfg.training.training_examples
+        N_train = cfg.training_examples
         N_validate = cfg.training.validation_examples
         K_train = K[0:N_train]
         U_train = U[0:N_train]
@@ -119,7 +116,7 @@ def run_experiment(cfg: DictConfig) -> None:
         U_validate = U[N_train:(N_train+N_validate)]
 
         dataset = TensorDataset(K_train, U_train)
-        data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
+        data_loader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True)
 
         pde_weight = cfg.pde_weight
         data_weight = 1. - pde_weight
@@ -129,7 +126,7 @@ def run_experiment(cfg: DictConfig) -> None:
             'validation_examples' : N_validate,
             'pde_weight' : pde_weight,
             'data_weight' : data_weight,
-            'lr' : cfg.training.lr
+            'lr' : cfg.lr
         })
 
         for i in range(
@@ -138,7 +135,7 @@ def run_experiment(cfg: DictConfig) -> None:
 
             print('Epoch', i)
             model.train()
-        
+   
             l_avg = torch.tensor(0.0)
             num = 0
             for batch, (k, u_mod) in enumerate(data_loader):
@@ -151,6 +148,7 @@ def run_experiment(cfg: DictConfig) -> None:
                 for j in range(len(u)):
                     k_j = k[j][0]
                     u_j = u[j][0]
+                    #l += pde_loss(u_j, k_j, darcy_model)
                     l += data_weight*data_loss(u_j, u_mod, darcy_model)
                     l += pde_weight*pde_loss(u_j, k_j, darcy_model)
                     l_avg += l
@@ -162,28 +160,28 @@ def run_experiment(cfg: DictConfig) -> None:
             l_avg /= num 
 
             # Log the loss
-            mlflow.log_metrics({
-               'loss' : l_avg.item()
-            }, step=i) 
-
-            print(l_avg.item())
+            metrics = {
+                'loss' : l_avg.item()
+            }
+            mlflow.log_metrics(metrics, step=i) 
+            print(metrics)
 
             # Write checkpoint
             if i % checkpoint_interval == 0:
                 save_checkpoint(**ckpt_args, epoch=i)
 
             # Validate
-            if i % validation_interval == 0:
+      
+            with torch.no_grad():
                 model.eval()
-                with torch.no_grad():
-                
-                    u = model(K_validate)
-                    loss = mse_loss(u, U_validate)
+                u = model(K_validate)
+                loss = torch.mean(torch.sqrt((u - U_validate)**2 + 1e-10))
 
-                    mlflow.log_metrics({
-                        "validation_loss": loss.detach()
-                    }, step=i)
-                
+                mlflow.log_metrics({
+                    "validation_loss": loss.detach().item()
+                }, step=i)
+
+                if i % validation_interval == 0:
                     plt.close("all")
                     fig = plt.figure()
 
@@ -203,7 +201,7 @@ def run_experiment(cfg: DictConfig) -> None:
                     plt.colorbar()
 
                     plt.tight_layout()
-                    mlflow.log_figure(fig, 'val_{i}.png')
+                    mlflow.log_figure(fig, f'val_{i}.png')
 
 
 if __name__ == "__main__":

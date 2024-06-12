@@ -1,0 +1,3 @@
+name: strong1
+pde_form: strong
+description: 'PINN Loss with strong form of PDE'

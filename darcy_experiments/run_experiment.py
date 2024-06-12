@@ -92,8 +92,8 @@ ckpt_args = {
     "models": model,
 }
 
-loaded_epoch = 0
-#loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
+#loaded_epoch = 0
+loaded_epoch = load_checkpoint(device=dist.device, **ckpt_args)
 
 if loaded_epoch == 0:
     log.success("Training started...")
@@ -129,6 +129,9 @@ data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 for i in range(
         max(1, loaded_epoch + 1), epochs + 1
     ):
+
+
+
 
     print('Epoch', i)
     model.train()
