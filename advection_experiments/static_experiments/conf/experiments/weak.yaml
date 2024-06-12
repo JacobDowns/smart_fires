@@ -1,4 +1,0 @@
-name: weak
-pde_form: weak
-description: 'Minimize weak form of PDE.'
-lr : 5e-5

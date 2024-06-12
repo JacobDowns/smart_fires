@@ -1,9 +1,0 @@
-experiment:
-    name: strong
-    
-hydra:
-    mode: MULTIRUN
-    sweeper:
-        params:
-          +n: 5,10,15
-          +a_lower: 0.5, 0.7, 0.9

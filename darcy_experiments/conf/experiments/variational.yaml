@@ -1,3 +1,0 @@
-name: variational
-pde_form: var
-description: 'PINN Loss with variational form of PDE'

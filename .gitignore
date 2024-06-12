@@ -171,10 +171,10 @@ warp_experiments/
 *.hydra/
 
 # MLflow
-mlruns/
-mlartifacts/
+**mlruns/
+**mlartifacts/
 outputs/
 mlruns.db
 **/basic_auth.db
-*.mdlus
-*multirun/
+**.mdlus
+**multirun/

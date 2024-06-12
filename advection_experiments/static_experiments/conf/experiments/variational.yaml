@@ -1,4 +1,0 @@
-name: variational
-pde_form: var
-description: 'Minimize variationl form of PDE.'
-lr : 1e-3

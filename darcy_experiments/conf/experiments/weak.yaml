@@ -1,3 +1,0 @@
-name: weak
-pde_form: weak
-description: 'PINN Loss with weak form of PDE'
